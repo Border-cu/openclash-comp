@@ -54,10 +54,13 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Configure build
+      - name: Configure build for arm64
         run: |
           cd openwrt-source
-          make defconfig ARCH=arm64 SUBARCH=arm64
+          
+          # 清除默认配置并设置arm64架构
+          make distclean
+          make defconfig ARCH=arm64 SUBARCH=arm64 BOARD=generic
           
           # 禁用有依赖问题的包
           cat >> .config << 'EOF'
@@ -73,66 +76,87 @@ jobs:
           # 启用openclash相关配置
           echo "CONFIG_PACKAGE_openclash=y" >> .config
           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          # ... 其他openclash相关kmod配置
+          echo "CONFIG_PACKAGE_kmod-ipt-nat=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ipt-masq=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ipt-core=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ipt-raw=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-ipt-offload=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-nat=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-flow=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-ipt=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-ip6tables=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-ipt6=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-queue=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nf-reject=y" >> .config
+          echo "CONFIG_PACKAGE_kmod-nfnetlink=y" >> .config
+          
+          # 显示配置摘要
+          make defconfig dump | grep -E "CONFIG_ARCH|CONFIG_TARGET|CONFIG_PACKAGE_openclash|CONFIG_PACKAGE_kmod"
 
       - name: Build OpenWrt with OpenClash
         run: |
           cd openwrt-source
-          make -j1 V=s
+          # 使用4线程编译并显示详细输出
+          make -j4 V=s
 
-      - name: Check for built packages
+      - name: Check for arm64 packages
         run: |
-          echo "=== 检查可能包含软件包的目录 ==="
+          echo "=== 检查arm64架构软件包 ==="
           cd openwrt-source
           
-          # 定义可能的架构路径
-          ARCH_PATHS=(
+          # 定义arm64可能的架构路径
+          ARM64_PATHS=(
             "bin/packages/arm64_cortex-a57_neon-vfpv4"
             "bin/packages/aarch64_cortex-a57"
             "bin/packages/aarch64_generic"
-            "bin/targets/*/*/packages"
+            "bin/targets/arm64/generic/packages"
+            "bin/targets/arm64/cortex-a53/packages"
+            "bin/targets/arm64/cortex-a72/packages"
           )
           
-          # 检查每个可能的路径
-          for path in "${ARCH_PATHS[@]}"; do
+          # 检查每个路径
+          OPENCLASH_FOUND=false
+          for path in "${ARM64_PATHS[@]}"; do
             echo "检查路径: $path"
             if [ -d "$(eval echo $path)" ]; then
               echo "目录内容:"
               ls -la "$(eval echo $path)"
-              echo "OpenClash 相关软件包:"
-              find "$(eval echo $path)" -name "openclash_*.ipk" -print
-              echo "内核模块相关软件包:"
-              find "$(eval echo $path)" -name "kmod-*.ipk" -print
+              
+              # 查找OpenClash软件包
+              CLASH_PACKAGES=$(find "$(eval echo $path)" -name "openclash_*.ipk" -print)
+              if [ -n "$CLASH_PACKAGES" ]; then
+                echo "找到OpenClash软件包:"
+                echo "$CLASH_PACKAGES"
+                OPENCLASH_FOUND=true
+              fi
+              
+              # 查找内核模块
+              echo "找到内核模块:"
+              find "$(eval echo $path)" -name "kmod-*.ipk" -print | sort
             else
               echo "目录不存在: $path"
             fi
             echo "---"
           done
           
-          # 检查是否找到OpenClash软件包
-          OPENCLASH_PACKAGES=$(find bin/ -name "openclash_*.ipk" | wc -l)
-          if [ "$OPENCLASH_PACKAGES" -eq 0 ]; then
-            echo "警告: 未找到OpenClash软件包!"
+          # 汇总结果
+          if [ "$OPENCLASH_FOUND" = true ]; then
+            echo "成功找到OpenClash软件包!"
           else
-            echo "找到 $OPENCLASH_PACKAGES 个OpenClash软件包"
-          fi
-          
-          # 检查是否找到内核模块
-          KMOD_PACKAGES=$(find bin/ -name "kmod-*.ipk" | wc -l)
-          if [ "$KMOD_PACKAGES" -eq 0 ]; then
-            echo "警告: 未找到内核模块软件包!"
-          else
-            echo "找到 $KMOD_PACKAGES 个内核模块软件包"
+            echo "警告: 未找到arm64架构的OpenClash软件包!"
+            echo "找到的所有软件包架构:"
+            find bin/ -name "*.ipk" | grep -oE "_([a-z0-9_-]+)\.ipk" | sort | uniq
           fi
 
-      - name: Upload build artifacts
+      - name: Upload arm64 artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openclash-ipk-and-kmods
+          name: openclash-arm64-packages
           path: |
-            openwrt-source/bin/packages/*/*/openclash_*.ipk
-            openwrt-source/bin/packages/*/*/kmod-*.ipk
-            openwrt-source/bin/targets/*/*/packages/openclash_*.ipk
-            openwrt-source/bin/targets/*/*/packages/kmod-*.ipk
+            openwrt-source/bin/packages/arm64_*/openclash_*.ipk
+            openwrt-source/bin/packages/arm64_*/kmod-*.ipk
+            openwrt-source/bin/targets/arm64/*/packages/openclash_*.ipk
+            openwrt-source/bin/targets/arm64/*/packages/kmod-*.ipk
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
