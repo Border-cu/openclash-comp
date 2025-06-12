@@ -1,18 +1,22 @@
 name: System Version Check
 
 on:
-  workflow_dispatch:  # 仅支持手动触发
+  workflow_dispatch:
 
 jobs:
   check:
-    runs-on: ubuntu-22.04  # 指定Ubuntu 22.04环境
+    runs-on: ubuntu-22.04
 
     steps:
       - name: 1. 初始系统版本检查
         run: |
           echo "===== 初始系统信息 ====="
-          lsb_release -a  # 输出Ubuntu版本（如22.04.5）
-          uname -a  # 输出内核版本
+          echo "Ubuntu 版本:"
+          lsb_release -a
+          echo "内核版本:"
+          uname -r  # 仅输出内核版本号（如6.8.0-1029-azure）
+          echo "完整内核信息:"
+          uname -a  # 输出完整内核信息
           echo "======================"
 
       - name: 2. 启用universe仓库
@@ -34,6 +38,10 @@ jobs:
       - name: 4. 安装后系统版本检查
         run: |
           echo "===== 安装后系统信息 ====="
-          lsb_release -a  # 再次输出Ubuntu版本
-          uname -a  # 再次输出内核版本
+          echo "Ubuntu 版本:"
+          lsb_release -a
+          echo "内核版本:"
+          uname -r  # 仅输出内核版本号（如6.8.0-1029-azure）
+          echo "完整内核信息:"
+          uname -a  # 输出完整内核信息
           echo "======================"
