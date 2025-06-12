@@ -61,9 +61,8 @@ jobs:
       - name: Configure build (arm64 v8)
         run: |
           cd openwrt-source
-          # 清除旧配置
+          # 清除旧配置并生成干净的默认配置
           make distclean
-          # 生成默认配置并指定架构
           make defconfig ARCH=arm64 SUBARCH=arm64 TARGET=armvirt SUBTARGET=64 PROFILE=generic
           
           # 禁用有依赖问题的包
@@ -75,6 +74,10 @@ jobs:
           CONFIG_PACKAGE_kexec-tools=n
           # 禁用依赖libnetsnmp的包
           CONFIG_PACKAGE_lldpd=n
+          # 禁用可能导致依赖问题的其他包
+          CONFIG_PACKAGE_pam=n
+          CONFIG_PACKAGE_lzma-utils=n
+          CONFIG_PACKAGE_net-snmp=n
           EOF
           
           # 启用OpenClash及必要依赖
@@ -85,18 +88,29 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-inet-diag=y" >> .config
           echo "CONFIG_PACKAGE_kmod-nf-conntrack=y" >> .config
           echo "CONFIG_PACKAGE_kmod-nf-nat=y" >> .config
+          
+          # 同步配置文件
+          make oldconfig
 
       - name: Show build configuration (调试用)
         run: |
           cd openwrt-source
           echo "=== OpenWrt构建配置 ==="
-          make printconfig | grep -E "ARCH|SUBARCH|TARGET|CONFIG_PACKAGE_openclash"
+          # 改用cat直接查看配置文件，避免printconfig命令失败
+          cat .config | grep -E "ARCH|SUBARCH|TARGET|CONFIG_PACKAGE_openclash"
           ls -la .config
 
       - name: Build OpenWrt with OpenClash
         run: |
           cd openwrt-source
-          # 使用nproc自动获取CPU核心数，避免编译错误
+          # 首次编译不使用并行，确保配置正确
+          make -j1 V=s \
+            ARCH=arm64 \
+            SUBARCH=arm64 \
+            TARGET=armvirt \
+            SUBTARGET=64 \
+            PROFILE=generic || make -j1 V=s IGNORE_ERRORS=1
+          # 成功后再使用并行编译加速
           make -j$(nproc) V=s \
             ARCH=arm64 \
             SUBARCH=arm64 \
@@ -117,5 +131,8 @@ jobs:
 
       - name: List built packages (调试用)
         run: |
+          cd openwrt-source
           echo "=== 编译生成的arm64软件包 ==="
-          find openwrt-source/bin -name "*.ipk" | grep -E "arm64|aarch64" || echo "未找到arm64软件包"
+          find bin -name "*.ipk" | grep -E "arm64|aarch64" || echo "未找到arm64软件包"
+          echo "=== OpenClash相关软件包 ==="
+          find bin -name "openclash*.ipk" || echo "未找到OpenClash软件包"
